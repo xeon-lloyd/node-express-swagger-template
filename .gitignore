@@ -12,4 +12,4 @@ sftp-config.json
 
 ##app_configs
 ### 실제 사용시 주석 해제하고 github 연결
-setting.js
+#setting.js
