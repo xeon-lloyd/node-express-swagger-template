@@ -64,10 +64,22 @@ module.exports = {
 				'DAY', 'MONTH', 'YEAR', 'WEEK', 'HOUR', 'MINUTE', 'SECOND'
 			]);
 		
-			return str.split(/(\s+|[=,;*()])/).map(part => {
-				// SQL 키워드와 특수문자는 그대로 반환
+			// 상태 관리: "AS" 뒤, SELECT 리스트 별칭 보호
+			let skipNext = false;
+
+			return str.split(/(\s+|[=,;*()])/).map((part, index, parts) => {
+				// SQL 키워드와 특수문자, 공백은 그대로 반환
 				if (sqlKeywords.has(part.toUpperCase()) || /^[=,;*()]+$/.test(part) || /^\s+$/.test(part)) {
+					if (part.toUpperCase() === 'AS') {
+						skipNext = true; // "AS" 뒤 별칭 보호 시작
+					}
 					return part;
+				}
+		
+				// SELECT 리스트에서 별칭 보호: ',' 또는 'FROM' 전까지
+				if (skipNext || (index > 0 && parts[index - 1].toUpperCase() === 'AS')) {
+					skipNext = false; // 별칭 보호 종료
+					return part; // 변환하지 않음
 				}
 		
 				// 일반 문자열만 camelCase -> snake_case 변환
