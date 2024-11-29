@@ -3,6 +3,15 @@ const valider = require('../valider.js')
 const dto = require('./dto.js')
 
 
+function mapOption(data){
+    let key = Object.keys(dto.defaultOption)
+    key.forEach(prop => {
+        if(data[prop]==undefined) data[prop] = dto.defaultOption[prop]
+    })
+
+    return data
+}
+
 const addPath = function(method, path, option=dto.defaultOption){
     // 경로 설정
     let pathOption = global.swagger.paths;
@@ -22,12 +31,12 @@ const addPath = function(method, path, option=dto.defaultOption){
 
     // response
     option.response.forEach(res => {
-        let example = {}
+        let example = data.responses[res.response]?.content["application/json"]?.examples || {}
         example[res.responseCode] = {
             value: res
         }
 
-        data.responses[res.responseCode] = {
+        data.responses[res.response] = {
             content: {
                 "application/json": {
                     examples: example
@@ -115,15 +124,6 @@ const addPath = function(method, path, option=dto.defaultOption){
     }
 
     pathOption[path][method] = data;
-}
-
-function mapOption(data){
-    let key = Object.keys(dto.defaultOption)
-    key.forEach(prop => {
-        if(data[prop]==undefined) data[prop] = dto.defaultOption[prop]
-    })
-
-    return data
 }
 
 module.exports = {
