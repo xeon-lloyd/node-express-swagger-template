@@ -1,3 +1,5 @@
+const valider = require('../valider.js')
+
 const addPath = function(method, path, data){
     let pathOption = global.swagger.paths;
     if(!pathOption[path]) pathOption[path] = {}
@@ -10,7 +12,7 @@ const defaultOption = {
     loginRequire: false,
     query: {},
     param: {},
-    body: {},
+    body: {}, // 일반 dto class 그대로
     response: []
 }
 
@@ -33,14 +35,22 @@ module.exports = {
     POST: function(path="", option=defaultOption){
         option = mapOption(option)
 
-        let response = {}
+        // data schme
+        let data = {
+            tags: [ option.tag ],
+            summary: option.title,
+            responses: {}
+        }
+
+
+        // response
         option.response.forEach(res => {
             let example = {}
             example[res.responseCode] = {
                 value: res
             }
 
-            response[res.responseCode] = {
+            data.responses[res.responseCode] = {
                 content: {
                     "application/json": {
                         examples: example
@@ -50,35 +60,81 @@ module.exports = {
         });
 
 
-        let security = []
-        if(option.loginRequire) security = [{
+        // loginRequire
+        if(option.loginRequire) data.security = [{
             Authorization: []
         }]
-        
 
-        let data = {
-            tags: [ option.tag ],
-            summary: option.title,
-            requestBody: {
-                content: {
-                    "application/json": {
-                        schema: {
-                            type: 'object',
-                            properties: {
-                                "id": { 
-                                    type: "string",
-                                    examples: '흠흐밍'
-                                },
-                                password: {
-                                    "type": "string",
-                                }
-                            },
-                        }
+
+        // param
+        if(!valider.isEmptyObject(option.param)){
+            data.parameters = []
+
+            let keys = Object.keys(option.param)
+            keys.forEach(prop => {
+                let info = option.param[prop].split('(')
+                let type = info?.pop()?.replace(')', '') || ''
+                let description = info.join('')
+
+                data.parameters.push({
+                    in: "path",
+                    required: true,
+                    name: prop,
+                    description: description,
+                    required: !(type.indexOf('?') > -1),
+                    schema: {
+                        type: type.replace('?', '')
+                    }
+                })
+            })
+        }
+
+
+        // query
+        if(!valider.isEmptyObject(option.query)){
+            if(data.query==undefined) data.parameters = []
+
+            let keys = Object.keys(option.query)
+            keys.forEach(prop => {
+                let info = option.query[prop].split('(')
+                let type = info?.pop()?.replace(')', '') || ''
+                let description = info.join('')
+
+                data.parameters.push({
+                    in: "query",
+                    required: true,
+                    name: prop,
+                    description: description,
+                    required: !(type.indexOf('?') > -1),
+                    schema: {
+                        type: type.replace('?', '')
+                    }
+                })
+            })
+        }
+
+
+        // body
+        let requestBody = {
+            content: {
+                "application/json": {
+                    schema: {
+                        type: 'object',
+                        properties: {}
                     }
                 }
-            },
-            responses: response,
-            security
+            }
+        }
+        if(!valider.isEmptyObject(option.body)){
+            let keys = Object.keys(option.body)
+            keys.forEach(prop => {
+                requestBody.content["application/json"].schema.properties[prop] = {
+                    type: typeof option.body[prop],
+                    example: option.body[prop]
+                }
+            })
+
+            data.requestBody = requestBody
         }
 
         addPath('post', path, data)

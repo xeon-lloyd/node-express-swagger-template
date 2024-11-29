@@ -1,0 +1,415 @@
+const fs = require('fs').promises;
+const path = require('path');
+const crypto = require('crypto');
+const setting = require(`../../setting.js`);
+
+module.exports = {
+	/* DB(mysql) 관련 */
+	mysql: {
+		/* DB 연결 */
+		connection: {},
+		connect: async function(db){
+			setting.mysql[db].enableKeepAlive = true;
+
+			const mysql = require('mysql2/promise');
+			this.connection[db] = mysql.createPool(setting.mysql[db]);;
+		},
+
+		camelToSnake: str => setting.sqlCamelToSnakeMapping?str[0].toLowerCase() + str.slice(1, str.length).replace(/[A-Z]/g, letter => `_${letter.toLowerCase()}`):str,
+		snakeToCamel: str => setting.sqlCamelToSnakeMapping?str.toLowerCase().replace(/([_][a-z])/g, group => group.toUpperCase().replace('_', '')):str,
+
+		/* select 실행 */
+		select: async function(db, select, table, where='', params=[], orderBy='', limit=''){
+			let sql = `SELECT ${this.camelToSnake(select)} FROM ${this.camelToSnake(table)}`;
+			if(where!='') sql += ` WHERE ${this.camelToSnake(where)}`;
+			if(orderBy!='') sql += ` ORDER BY ${this.camelToSnake(orderBy)}`;
+			if(limit!='') sql += ` LIMIT ${limit}`;
+
+			let [result] = await this.connection[db].query(sql, params);
+
+			result = result.map(ele=>{
+				let newObj = {};
+				let keys = Object.keys(ele);
+				for(i=0; i<keys.length; i++){
+					newObj[this.snakeToCamel(keys[i])] = ele[keys[i]]
+				}
+
+				return newObj
+			})
+			
+			return result;
+		},
+
+		/* insert 실행 */
+		insert: async function(db, table, data){
+			let keys = Object.keys(data);
+			let params = [];
+			let setter = '(';
+			let value = 'VALUES('
+			for(let i=0;i<keys.length;i++){
+				setter += `\`${this.camelToSnake(keys[i])}\`, `;
+				value += `?, `;
+				params.push(data[keys[i]]);
+			}
+
+			setter = setter.substr(0, setter.length-2)+')';
+			value = value.substr(0, value.length-2)+')';
+
+			let sql = `INSERT INTO ${this.camelToSnake(table)} ${setter} ${value}`;
+
+			let [result] = await this.connection[db].query(sql, params);
+
+			return result;
+		},
+
+		insertMany: async function(db, table, name, data){
+			let sql = `INSERT INTO ${this.camelToSnake(table)} (${this.camelToSnake(name)}) VALUES ?`;
+
+			try{
+				let [result] = await this.connection[db].query(sql, [data]);
+			}catch(e){
+				console.log(e)
+			}
+		},
+
+		/* update 실행 */
+		update: async function(db, table, data, where, Wparams){
+			let keys = Object.keys(data);
+			let params = [];
+			let setter = 'SET ';
+			for(let i=0;i<keys.length;i++){
+				setter += `\`${this.camelToSnake(keys[i])}\` = ?, `;
+				params.push(data[keys[i]]);
+			}
+
+			setter = setter.substr(0, setter.length-2);
+
+			let sql = `UPDATE ${this.camelToSnake(table)} ${setter} WHERE ${this.camelToSnake(where)}`;
+
+			if(Wparams!=undefined) params = params.concat(Wparams);
+			
+			let [result] = await this.connection[db].query(sql, params);
+
+			return result;
+		},
+
+		/* delete 실행 */
+		delete: async function(db, table, where='', params){
+			let sql = `DELETE FROM ${this.camelToSnake(table)}`;
+			if(where!='') sql += ` WHERE ${this.camelToSnake(where)}`;
+			
+			let [result] = await this.connection[db].query(sql, params);
+
+			return result;
+		},
+
+		/* 조건 count */
+		count: async function(db, table, where='', params){
+			let sql = `SELECT COUNT(*) as result FROM ${this.camelToSnake(table)}`;
+			if(where!='') sql += ` WHERE ${this.camelToSnake(where)}`;
+
+			let [result] = await this.connection[db].query(sql, params);
+
+			return parseInt(result[0].result);
+		},
+
+		/* 조건 합계 */
+		sum: async function(db, select, table, where='', params){
+			let sql = `SELECT SUM(${this.camelToSnake(select)}) as result FROM ${this.camelToSnake(table)}`;
+			if(where!='') sql += ` WHERE ${this.camelToSnake(where)}`;
+
+			let [result] = await this.connection[db].query(sql, params);
+
+			return parseFloat(result[0].result) || 0;
+		},
+
+		/* sql 실행 */
+		exec: async function(db, sql, params){
+			let [result] = await this.connection[db].query(sql, params);
+
+			return result;
+		}
+	},
+
+	/* 암호화 관련 */
+	encrypt: {
+		/* 단방향 암호화 */
+		oneWay: function(plainText){
+			return crypto.createHmac('sha512', setting.encrypt.key).update(plainText).digest('hex');
+		},
+
+		oneWayLite: function(plainText){
+			return crypto.createHmac('sha256', setting.encrypt.key).update(plainText).digest('hex');
+		},
+
+		shortHash: function(plainText, len){
+			return crypto.createHash('shake256', { outputLength: len }).update(plainText).digest('hex');
+		},
+
+		/* 양방향 암호화 */
+		encode: function(plainText){
+			let iv = crypto.randomBytes(16);
+			let cipher = crypto.createCipheriv('aes-128-cbc', setting.encrypt.key, iv);
+			let encrypted = cipher.update(plainText);
+			let finalBuffer = Buffer.concat([encrypted, cipher.final()]);
+			let encoded = iv.toString('hex') + ':' + finalBuffer.toString('hex');
+
+			return encoded;
+		},
+
+		/* 양방향 복호화 */
+		decode: function(encoded){
+			let encryptedArray = encoded.split(':');
+			let iv = new Buffer.from(encryptedArray[0], 'hex');
+			let encrypted = new Buffer.from(encryptedArray[1], 'hex');
+			let decipher = crypto.createDecipheriv('aes-128-cbc', setting.encrypt.key, iv);
+			let decrypted = decipher.update(encrypted);
+			let plainText = Buffer.concat([decrypted, decipher.final()]).toString();
+
+			return plainText;
+		}
+	},
+
+	/* 사용자 토큰 */
+	token: {
+		generateToken: function(userData){
+			userData._tokenCreateAt = new Date().getTime()
+			
+			let payload = Buffer.from(JSON.stringify(userData)).toString('base64')
+			let hash = module.exports.encrypt.oneWayLite(payload)
+			return `${payload}.${hash}`;
+		}
+	},
+
+	/* 메일 전송 관련 */
+	mail: {
+		/* 메일 전송 */
+		send: function(mailOption){
+			const nodemailer = require('nodemailer');
+
+			return new Promise((resolve, reject) => {
+				const transporter = nodemailer.createTransport({
+					host: 'smtp.gmail.com',
+					port: 465,
+					secure: true,
+					auth:{
+						type: 'OAuth2',
+						user: setting.gmailSmtp.user,
+						clientId: setting.gmailSmtp.clientId,
+						clientSecret: setting.gmailSmtp.clientSecret,
+						refreshToken: setting.gmailSmtp.refreshToken,
+					}
+				});
+
+				mailOption.from = setting.gmailSmtp.fromEmail;
+
+				transporter.sendMail(mailOption, (error, info) => {
+					resolve(info)
+				});
+			})
+		}
+	},
+
+	/* aws s3 관련 */
+	s3: {
+		auth: null,
+		setAuth: function(){
+			const awsS3 = require("@aws-sdk/client-s3");
+
+			this.auth = new awsS3.S3({
+				endpoint: setting.s3.endpoint,
+				region: setting.s3.region,
+				credentials: {
+					accessKeyId: setting.s3.accessKeyId,
+					secretAccessKey: setting.s3.secretAccessKey,
+				}
+			});
+		},
+
+		upload: async function(option){
+			if(option.Body==undefined) option.Body = option.BodyRaw;
+			else option.Body = await fs.readFile(option.Body);
+
+			try{
+				return this.auth.putObject(option);
+			}catch(e){
+				console.log(e)
+				return;
+			}	
+		},
+
+		download: async function(option){
+			let data = await this.auth.getObject({   
+				Bucket: option.Bucket,      
+				Key: option.Key,
+			});
+
+			if(option.fileName==undefined) return data.Body.transformToString();
+			else await fs.writeFile(option.fileName, data.Body);
+		},
+
+		copy: async function(option){
+			/* {
+				Bucket: "목적지 버킷",
+				CopySource: encodeURI(`/${원본 버킷}/${파일명}`),
+				Key: "목적지 파일명",
+			} */
+			await this.auth.copyObject(option)
+		},
+
+		delete: async function(option){
+			/* {   
+				Bucket: option.Bucket,      
+				Key: option.Key,
+			} */
+			await this.auth.deleteObject(option);
+		},
+
+		headObject: async function(option){
+			/* {   
+				Bucket: option.Bucket,      
+				Key: option.Key,
+			} */
+			let data = await this.auth.headObject(option);
+
+			return data;
+		},
+	},
+
+	fileUpload: {
+		decodeFileToken: function(token){
+			return JSON.parse(module.exports.encrypt.decode(token))
+		},
+
+		moveTo: async function(token, bucket, key){
+			try{
+				let fileName = this.decodeFileToken(token).name
+
+				await module.exports.s3.copy({
+					Bucket: bucket,
+					CopySource: encodeURI(`/${setting.fileUpload.tempBucket}/${fileName}`),
+					Key: key,
+				})
+	
+				await module.exports.s3.delete({   
+					Bucket: setting.fileUpload.tempBucket,      
+					Key: fileName,
+				})
+			}catch(e){
+				throw new Error("유효하지 않은 File Token")
+			}
+		},
+
+		toStream: async function(token){
+			try{
+				let fileName = this.decodeFileToken(token).name
+
+				let data = await module.exports.s3.auth.getObject({   
+					Bucket: setting.fileUpload.tempBucket,      
+					Key: fileName,
+				});
+
+				await module.exports.s3.delete({   
+					Bucket: setting.fileUpload.tempBucket,      
+					Key: fileName,
+				})
+
+				return data.Body
+			}catch(e){
+				throw new Error("유효하지 않은 File Token")
+			}
+		},
+	},
+
+	redis: {
+		client: null,
+		connect: async function(){
+			const redis = require('redis')
+
+			this.client = redis.createClient({
+				socket: {
+					host: setting.redis.host,
+				  	port: setting.redis.port,
+				},
+				password: setting.redis.password
+			});
+
+			await this.client.connect();
+		},
+
+		get: async function(key){
+			return await this.client.get(key)
+		},
+
+		set: async function(key, value, expire){
+			if(expire!=undefined) return await this.client.set(key, value, { EX: expire }) // s
+			await this.client.set(key, value)
+		},
+
+		del: async function(key){
+			return await this.client.del(key)
+		},
+	},
+
+	socket: {
+		io: null,
+	},
+}
+
+
+/* Date 스트링 포멧형식으로 사용할 수 있게 추가 */
+Date.prototype.stringFormat = function(format){
+	/* 날짜 정보 초기화 */
+	let y = this.getFullYear();
+	let m = this.getMonth()+1;
+	let d = this.getDate();
+	let h = this.getHours();
+	let i = this.getMinutes();
+	let s = this.getSeconds();
+
+	/* 날짜정보 이쁘게 만들기 */
+	m = m<10?'0'+m:m;
+	d = d<10?'0'+d:d;
+	h = h<10?'0'+h:h;
+	i = i<10?'0'+i:i;
+	s = s<10?'0'+s:s;
+
+	/* 포멧 변환 후 반환 */
+	return format.replace(/y/g, y).replace(/m/g, m).replace(/d/g, d).replace(/h/g, h).replace(/i/g, i).replace(/s/g, s);
+}
+
+/* Number(초) 시간 단위로 변환하여 사용할 수 있게 추가 */
+Number.prototype.secToTime = function(type){
+	if(this < 60) return `1분 미만`;
+	if(this < 60*60 || type=='min') return `${parseInt(this/60)}분`;
+	if(this < 60*60*24 || type=='hour') return `약 ${parseInt(this/(60*60))}시간`;
+	if(this < 60*60*24*30.5 || type=='day') return `약 ${parseInt(this/(60*60*24))}일`;
+	if(this < 60*60*24*365 || type=='month') return `약 ${parseInt(this/(60*60*24*30))}달`;
+	else return `약 ${parseInt(this/(60*60*24*365))}년`;
+}
+
+/* 숫자를 읽는 숫자로 변경 */
+Number.prototype.toReadFormat = function(){
+    if(this<1000) return this;
+    var s = ['', 'K', 'M', 'B', 'T'];
+    var e = Math.floor(Math.log(this) / Math.log(1000));
+    return (this / Math.pow(1000, e)).toFixed(2) + s[e];
+}
+
+/* 숫자(바이트)를 읽는 용량으로 변경 */
+Number.prototype.byteSizeToString = function(){
+	var i = this == 0 ? 0 : Math.floor(Math.log(this) / Math.log(1000));
+	return (this / Math.pow(1000, i)).toFixed(2) * 1 + ' ' + ['B', 'kB', 'MB', 'GB', 'TB'][i];
+}
+
+/* 숫자(초)를 시간 string으로 변경 */
+Number.prototype.secToTimeFormat = function(){
+	let h = parseInt(this/3600)
+	let m = parseInt(this%3600 / 60)
+	let s = parseInt(this%60)
+
+	if(m<10) m = `0${m}`;
+	if(s<10) s = `0${s}`;
+
+	return `${h}:${m}:${s}`
+}

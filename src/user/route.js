@@ -5,9 +5,14 @@ const APIdoc = require('../core/swagger/module.js')
 
 const response = require('../response.js')
 
+const param = require('./param.js')
+const query = require('./query.js')
+const body = require('./body.js')
+
 APIdoc.POST('/user/login', {
 	tag: 'user',
     title: '로그인 요청',
+	body: new body.UserLoginPostBody,
     response: [
 		new response.APINotFound
 	]
