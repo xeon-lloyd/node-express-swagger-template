@@ -15,7 +15,30 @@ module.exports = {
 			this.connection[db] = mysql.createPool(setting.mysql[db]);;
 		},
 
-		camelToSnake: str => setting.sqlCamelToSnakeMapping?str[0].toLowerCase() + str.slice(1, str.length).replace(/[A-Z]/g, letter => `_${letter.toLowerCase()}`):str,
+		camelToSnake: str => {
+			if (!setting.sqlCamelToSnakeMapping) return str;
+		
+			// SQL 예약어 목록
+			const sqlKeywords = new Set([
+				'SELECT', 'FROM', 'WHERE', 'INSERT', 'INTO', 'VALUES',
+				'UPDATE', 'SET', 'DELETE', 'LIMIT', 'ORDER', 'BY', 
+				'AND', 'OR', 'IN', 'AS', 'COUNT', 'SUM', 'GROUP', 'HAVING'
+			]);
+		
+			// 문자열을 단어 단위로 나누어 처리
+			return str.split(/(\s+|[=,;*])/).map(part => {
+				// SQL 키워드와 특수문자(공백 등)는 그대로 반환
+				if (sqlKeywords.has(part.toUpperCase()) || /^[=,;*]+$/.test(part) || /^\s+$/.test(part)) {
+					return part;
+				}
+		
+				// 일반 문자열은 camelCase -> snake_case 변환
+				return part
+					.replace(/([A-Z])/g, letter => `_${letter.toLowerCase()}`)
+					.replace(/^_/, ''); // 앞에 붙은 _ 제거
+			}).join('');
+		},
+		
 		snakeToCamel: str => setting.sqlCamelToSnakeMapping?str.toLowerCase().replace(/([_][a-z])/g, group => group.toUpperCase().replace('_', '')):str,
 
 		/* select 실행 */
@@ -125,7 +148,7 @@ module.exports = {
 
 		/* sql 실행 */
 		exec: async function(db, sql, params){
-			let [result] = await this.connection[db].query(sql, params);
+			let [result] = await this.connection[db].query(this.camelToSnake(sql), params);
 
 			return result;
 		}
