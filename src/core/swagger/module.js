@@ -1,5 +1,6 @@
 const valider = require('../valider.js')
 
+const responseDefault = require('../../response.default.js')
 const dto = require('./dto.js')
 
 
@@ -47,9 +48,25 @@ const addPath = function(method, path, option=dto.defaultOption){
 
 
     // loginRequire
-    if(option.loginRequire) data.security = [{
-        Authorization: []
-    }]
+    if(option.loginRequire){
+        data.security = [{
+            Authorization: []
+        }]
+
+        // 401 응답 추가
+        let example = data.responses[401]?.content["application/json"]?.examples || {}
+        example.Unauthorized = {
+            value: new responseDefault.Unauthorized
+        }
+
+        data.responses[401] = {
+            content: {
+                "application/json": {
+                    examples: example
+                }
+            }
+        }
+    }
 
 
     // param
