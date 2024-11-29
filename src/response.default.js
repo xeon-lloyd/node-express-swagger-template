@@ -13,8 +13,8 @@ module.exports = {
     },
 
     'BadRequest': class {
-        constructor(errorCode, message) {
-            this.errorCode = errorCode || null;
+        constructor(responseCode, message) {
+            this.responseCode = responseCode || null;
             this.message = message || "Bad Request";
         }
 
@@ -26,8 +26,8 @@ module.exports = {
     },
 
     'Unauthorized': class {
-        constructor(errorCode, message) {
-            this.errorCode = errorCode || null;
+        constructor(responseCode, message) {
+            this.responseCode = responseCode || null;
             this.message = message || "로그인이 필요합니다";
         }
 
@@ -39,8 +39,8 @@ module.exports = {
     },
     
     'Forbidden': class {
-        constructor(errorCode, message) {
-            this.errorCode = errorCode || null;
+        constructor(responseCode, message) {
+            this.responseCode = responseCode || null;
             this.message = message || "Forbidden";
         }
 
@@ -52,8 +52,8 @@ module.exports = {
     },
 
     'NotFound': class {
-        constructor(errorCode, message) {
-            this.errorCode = errorCode || null;
+        constructor(responseCode, message) {
+            this.responseCode = responseCode || null;
             this.message = message || "Not found";
         }
 
@@ -65,8 +65,8 @@ module.exports = {
     },
 
     'MethodNotAllowed': class {
-        constructor(errorCode, message) {
-            this.errorCode = errorCode || null;
+        constructor(responseCode, message) {
+            this.responseCode = responseCode || null;
             this.message = message || "Method Not Allowed";
         }
 
@@ -78,8 +78,8 @@ module.exports = {
     },
 
     'InternalServerError': class {
-        constructor(errorCode, message) {
-            this.errorCode = errorCode || null;
+        constructor(responseCode, message) {
+            this.responseCode = responseCode || null;
             this.message = message || "Internal Server Error";
         }
 
